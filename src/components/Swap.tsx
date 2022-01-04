@@ -28,7 +28,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { v4 as uuid } from 'uuid'
 
 import { getRpcs } from '../config/connectors'
-import { deleteRoute, readActiveRoutes, readHistoricalRoutes } from '../services/localStorage'
+import {
+  deleteRoute,
+  readActiveRoutes,
+  readHistoricalRoutes,
+  storeRoute,
+} from '../services/localStorage'
 import { switchChain } from '../services/metamask'
 import { loadTokenListAsTokens } from '../services/tokenListService'
 import { deepClone, formatTokenAmountOnly } from '../services/utils'
@@ -276,6 +281,17 @@ const Swap = ({ transferChains }: SwapProps) => {
   startParams =
     startParams ?? getDefaultParams(history.location.search, transferChains, transferTokens)
 
+  // Wallet
+  const web3 = useWeb3React<Web3Provider>()
+  const { activate } = useWeb3React()
+  const login = () => activate(injected)
+
+  const initializeActiveRoutes = useCallback(() => {
+    const activeRoutes = readActiveRoutes()
+
+    return activeRoutes
+  }, [])
+
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [unused, setStateUpdate] = useState<number>(0)
 
@@ -311,16 +327,27 @@ const Swap = ({ transferChains }: SwapProps) => {
   const [noRoutesAvailable, setNoRoutesAvailable] = useState<boolean>(false)
   const [selectedRoute, setSelectedRoute] = useState<RouteType | undefined>()
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1)
-  const [activeRoutes, setActiveRoutes] = useState<Array<RouteType>>(readActiveRoutes())
+  const [activeRoutes, setActiveRoutes] = useState<Array<RouteType>>(initializeActiveRoutes())
   const [historicalRoutes, setHistoricalRoutes] = useState<Array<RouteType>>(readHistoricalRoutes())
-
-  // Wallet
-  const web3 = useWeb3React<Web3Provider>()
-  const { activate } = useWeb3React()
-  const login = () => activate(injected)
 
   // Elements used for animations
   const routeCards = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    // get new execution status on page load
+    activeRoutes.map((route) => {
+      if (!web3 || !web3.library) return
+      const settings = {
+        updateCallback: (updatedRoute: RouteType) => {
+          storeRoute(updatedRoute)
+          setActiveRoutes(readActiveRoutes())
+          setHistoricalRoutes(readHistoricalRoutes())
+        },
+      }
+      LiFi.resumeRoute(web3.library.getSigner(), route, settings)
+      LiFi.moveExecutionToBackground(route)
+    })
+  }, [web3.library])
 
   useEffect(() => {
     const load = async () => {
